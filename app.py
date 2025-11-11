@@ -4,8 +4,8 @@ from transformers import pipeline
 import requests
 from PIL import Image
 import os
-import torch
-torch.set_default_dtype(torch.float32)
+os.environ["TORCH_COMPILE_DISABLE"] = "1"
+
 
 
 # --------------------------------
@@ -60,7 +60,8 @@ body {
 st.title("🚨 Harmful Image Content Classifier")
 st.subheader("Detects nudity, violence, suicide, toxicity, hate, and more.")
 
-ocr = easyocr.Reader(['en'])
+ocr = easyocr.Reader(['en'], gpu=False)
+
 
 # SAFE MODELS FOR STREAMLIT CLOUD
 toxicity_model = pipeline(
