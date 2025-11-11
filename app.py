@@ -43,24 +43,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------
-# OCR.Space API (No tesseract needed)
+# OCR using OCR.Space API
 # ---------------------------------------------------
-OCR_API_KEY = "helloworld"
+OCR_API_KEY = "helloworld"   # free demo key
 
 def extract_text(image_path):
     url = "https://api.ocr.space/parse/image"
     with open(image_path, "rb") as f:
         files = {"file": f}
-        payload = {"apikey": OCR_API_KEY, "language": "eng"}
-        r = requests.post(url, files=files, data=payload)
+        data = {"apikey": OCR_API_KEY, "language": "eng"}
+        r = requests.post(url, files=files, data=data)
         try:
             return r.json()["ParsedResults"][0]["ParsedText"]
         except:
             return ""
 
-
 # ---------------------------------------------------
-# HuggingFace Models (fixed dtype, correct model)
+# HuggingFace Models (Using correct dtype)
 # ---------------------------------------------------
 toxicity_model = pipeline(
     "text-classification",
@@ -71,11 +70,10 @@ toxicity_model = pipeline(
 
 suicide_model = pipeline(
     "text-classification",
-    model="michellejieli/self-harm",   # REAL suicide model
+    model="AlekseyKorshuk/self-harm-classifier",
     device=-1,
     dtype="float32"
 )
-
 
 # ---------------------------------------------------
 # Sightengine API
@@ -85,55 +83,59 @@ API_SECRET = "BggWDfoR2MtExba7FVjwepaznrxWejv6"
 
 def image_moderation(img_path):
     url = "https://api.sightengine.com/1.0/check.json"
-    files = {"media": open(img_path, "rb")}
-    params = {
-        "models": "nudity,wad,offensive,faces,gore,weapon,violence",
-        "api_user": API_USER,
-        "api_secret": API_SECRET
-    }
-    return requests.post(url, data=params, files=files).json()
-
+    with open(img_path, "rb") as f:
+        files = {"media": f}
+        params = {
+            "models": "nudity,wad,offensive,faces,gore,weapon,violence",
+            "api_user": API_USER,
+            "api_secret": API_SECRET,
+        }
+        return requests.post(url, data=params, files=files).json()
 
 # ---------------------------------------------------
-# Decision Fusion (fixed for correctness)
+# Decision Fusion (Correct thresholds)
 # ---------------------------------------------------
 def fuse(text_res, img_res):
     reasons = []
 
-    # TEXT — Suicide model (fixed)
-    if text_res["suicidal"]["label"] in ["self-harm", "suicidal"] and text_res["suicidal"]["score"] > 0.7:
-        reasons.append("Self-harm or suicidal intent detected")
+    # SELF-HARM DETECTION (Correct model)
+    if (
+        text_res["suicidal"]["label"].lower() == "self-harm"
+        and text_res["suicidal"]["score"] > 0.7
+    ):
+        reasons.append("Self-harm / suicidal intent detected.")
 
-    # TEXT — Toxic model (fixed)
-    if text_res["toxic"]["label"].lower() == "toxic" and text_res["toxic"]["score"] > 0.8:
-        reasons.append("Toxic or abusive language detected")
+    # TOXICITY DETECTION (More strict to avoid false positives)
+    if (
+        text_res["toxic"]["label"].lower() == "toxic"
+        and text_res["toxic"]["score"] > 0.8
+    ):
+        reasons.append("Toxic or abusive language detected.")
 
-    # IMAGE — Extract scores
+    # IMAGE DETECTION
     nudity = img_res.get("nudity", {})
     weapon = img_res.get("weapon", {})
     violence = img_res.get("violence", {})
     gore = img_res.get("gore", {})
     offensive = img_res.get("offensive", {})
 
-    # Thresholds tuned to avoid false positives
     if nudity.get("raw", 0) > 0.5:
-        reasons.append("Nudity detected")
+        reasons.append("Nudity detected.")
     if nudity.get("sexual_activity", 0) > 0.5:
-        reasons.append("Sexual activity detected")
+        reasons.append("Sexual activity detected.")
     if nudity.get("sexual_display", 0) > 0.5:
-        reasons.append("Sexual display detected")
+        reasons.append("Sexual display detected.")
 
     if weapon.get("prob", 0) > 0.6:
-        reasons.append("Weapon detected")
+        reasons.append("Weapon detected.")
     if violence.get("prob", 0) > 0.6:
-        reasons.append("Violence detected")
+        reasons.append("Violence detected.")
     if gore.get("prob", 0) > 0.5:
-        reasons.append("Gore detected")
+        reasons.append("Gore detected.")
     if offensive.get("prob", 0) > 0.6:
-        reasons.append("Offensive or hate symbols detected")
+        reasons.append("Offensive / hate symbol detected.")
 
-    return ("OKAY" if not reasons else "BAD"), reasons
-
+    return ("OKAY" if len(reasons) == 0 else "BAD"), reasons
 
 # ---------------------------------------------------
 # Safe Image Save
@@ -146,14 +148,13 @@ def save_uploaded_image(uploaded_file):
     img.save(temp_path, format="PNG")
     return temp_path
 
-
 # ---------------------------------------------------
 # Streamlit UI
 # ---------------------------------------------------
 st.title("🚨 Harmful Content Detection System")
 st.write("Upload → OCR → Text Moderation → Image Moderation → Verdict")
 
-uploaded_file = st.file_uploader("Upload an image", type=["jpg","jpeg","png"])
+uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
 
@@ -173,7 +174,6 @@ if uploaded_file:
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
     st.subheader("📘 Text Moderation")
 
-    # If blank text, do NOT classify
     if text.strip() == "":
         text_res = {
             "toxic": {"label": "neutral", "score": 0.0},
@@ -226,7 +226,7 @@ if uploaded_file:
     # Offensive
     if "offensive" in img_res:
         prob = img_res["offensive"]["prob"]
-        st.write("### Hate / Offensive Symbols:", prob)
+        st.write("### Offensive Symbols:", prob)
         st.progress(prob)
 
     st.markdown("</div>", unsafe_allow_html=True)
