@@ -1,4 +1,5 @@
 import streamlit as st
+import pytesseract
 import cv2
 import numpy as np
 from transformers import pipeline
@@ -53,26 +54,18 @@ body {
 """, unsafe_allow_html=True)
 
 # --------------------------------
-# OCR using OCR.Space API (works on Streamlit Cloud)
+# OCR Function (pytesseract — works on Streamlit Cloud)
 # --------------------------------
-OCR_API_KEY = "helloworld"   # Free demo key from OCR.Space
-
 def extract_text(image_path):
-    url = "https://api.ocr.space/parse/image"
-    with open(image_path, "rb") as f:
-        files = {"file": f}
-        payload = {
-            "apikey": OCR_API_KEY,
-            "language": "eng",
-        }
-        r = requests.post(url, files=files, data=payload)
-        try:
-            return r.json()["ParsedResults"][0]["ParsedText"]
-        except:
-            return ""
+    img = cv2.imread(image_path)
+    if img is None:
+        return ""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    text = pytesseract.image_to_string(gray)
+    return text.strip()
 
 # --------------------------------
-# Load Text Moderation Models
+# Load Text Moderation Models (Lightweight, Cloud-Safe)
 # --------------------------------
 toxicity_model = pipeline(
     "text-classification",
@@ -95,15 +88,15 @@ API_USER = "872379412"     # <-- REPLACE
 API_SECRET = "BggWDfoR2MtExba7FVjwepaznrxWejv6" # <-- REPLACE
 
 # --------------------------------
-# Image Moderation via Sightengine
+# Image Moderation API
 # --------------------------------
 def image_moderation(img_path):
     url = "https://api.sightengine.com/1.0/check.json"
-    files = {"media": open(img_path, "rb")}
+    files = {'media': open(img_path, 'rb')}
     params = {
-        "models": "nudity,wad,offensive,faces,gore,weapon,violence",
-        "api_user": API_USER,
-        "api_secret": API_SECRET
+        'models': 'nudity,wad,offensive,faces,gore,weapon,violence',
+        'api_user': API_USER,
+        'api_secret': API_SECRET
     }
     res = requests.post(url, data=params, files=files)
     return res.json()
@@ -119,14 +112,16 @@ def fuse(text_res, img_res):
         "threat", "violent", "abusive", "harassment", "hate"
     ]
 
+    # TEXT ANALYSIS
     label = text_res["suicidal"]["label"].lower()
 
-    if any(w in label for w in suicide_keywords) and text_res["suicidal"]["score"] > 0.45:
+    if any(word in label for word in suicide_keywords) and text_res["suicidal"]["score"] > 0.45:
         reasons.append("Self-harm / Threatening language detected")
 
     if text_res["toxic"]["label"] != "neutral" and text_res["toxic"]["score"] > 0.45:
         reasons.append("Toxic or abusive text detected")
 
+    # IMAGE ANALYSIS
     nudity = img_res.get("nudity", {})
     weapon = img_res.get("weapon", {})
     violence = img_res.get("violence", {})
@@ -149,11 +144,11 @@ def fuse(text_res, img_res):
     if offensive.get("prob", 0) > 0.4:
         reasons.append("Offensive / hate symbols detected")
 
-    final = "OKAY" if not reasons else "BAD"
+    final = "OKAY" if len(reasons) == 0 else "BAD"
     return final, reasons
 
 # --------------------------------
-# Safe Image Saving (no JPG errors)
+# Safe Image Save Function (fixes PIL OSError)
 # --------------------------------
 def save_uploaded_image(uploaded_file) -> str:
     img = Image.open(uploaded_file)
@@ -201,48 +196,58 @@ if uploaded_file:
     st.markdown("</div>", unsafe_allow_html=True)
 
     # IMAGE MODERATION
-    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.subheader("🖼 Image Moderation")
+st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+st.subheader("🖼 Image Moderation")
 
-    img_res = image_moderation(temp_path)
+img_res = image_moderation(temp_path)
 
-    if "nudity" in img_res:
-        st.write("### Nudity / Sexual Content")
-        for k, v in img_res["nudity"].items():
-            st.write(f"{k}: {v:.2f}")
-            st.progress(min(1.0, v))
+# Nudity block (list fields are safe)
+if "nudity" in img_res:
+    st.write("### Nudity / Sexual Content")
+    for k, v in img_res["nudity"].items():
+        st.write(f"{k}: {v:.2f}")
+        st.progress(min(1.0, v))
 
-    if "violence" in img_res:
-        st.write("### Violence:", img_res["violence"]["prob"])
-        st.progress(min(1.0, img_res["violence"]["prob"]))
+# Weapon
+weapon_prob = img_res.get("weapon", {}).get("prob", 0)
+if weapon_prob > 0:
+    st.write("### Weapon:", weapon_prob)
+    st.progress(min(1.0, weapon_prob))
 
-    if "weapon" in img_res:
-        st.write("### Weapon:", img_res["weapon"]["prob"])
-        st.progress(min(1.0, img_res["weapon"]["prob"]))
+# Violence
+violence_prob = img_res.get("violence", {}).get("prob", 0)
+if violence_prob > 0:
+    st.write("### Violence:", violence_prob)
+    st.progress(min(1.0, violence_prob))
 
-    if "gore" in img_res:
-        st.write("### Gore:", img_res["gore"]["prob"])
-        st.progress(min(1.0, img_res["gore"]["prob"]))
+# Gore
+gore_prob = img_res.get("gore", {}).get("prob", 0)
+if gore_prob > 0:
+    st.write("### Gore:", gore_prob)
+    st.progress(min(1.0, gore_prob))
 
-    if "offensive" in img_res:
-        st.write("### Offensive Symbols:", img_res["offensive"]["prob"])
-        st.progress(min(1.0, img_res["offensive"]["prob"]))
+# Offensive
+offensive_prob = img_res.get("offensive", {}).get("prob", 0)
+if offensive_prob > 0:
+    st.write("### Offensive Symbols:", offensive_prob)
+    st.progress(min(1.0, offensive_prob))
 
-    st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
+
 
     # FINAL RESULT
-    final, reasons = fuse(text_res, img_res)
+final, reasons = fuse(text_res, img_res)
 
-    st.markdown("---")
-    st.subheader("🧾 Final Verdict")
+st.markdown("---")
+st.subheader("🧾 Final Verdict")
 
-    if final == "BAD":
-        st.markdown("<div class='result-bad'>🚨 BAD</div>", unsafe_allow_html=True)
-        st.write("### Reasons:")
-        for r in reasons:
-            st.write("• " + r)
-    else:
-        st.markdown("<div class='result-okay'>✅ OKAY</div>", unsafe_allow_html=True)
-        st.write("Content is safe.")
+if final == "BAD":
+    st.markdown("<div class='result-bad'>🚨 BAD</div>", unsafe_allow_html=True)
+    st.write("### Reasons:")
+    for r in reasons:
+        st.write("• " + r)
+else:
+    st.markdown("<div class='result-okay'>✅ OKAY</div>", unsafe_allow_html=True)
+    st.write("Content is safe.")
 
-    st.markdown("---")
+st.markdown("---")
