@@ -1,79 +1,73 @@
 import streamlit as st
 import requests
 from PIL import Image
-import os
 
 # ---------------------------------------------------
-# Streamlit Page Config & CSS
+# CONFIG & CSS
 # ---------------------------------------------------
-st.set_page_config(page_title="Harmful Content Detector", page_icon="🚨", layout="centered")
+st.set_page_config(page_title="Harmful Content Detector", page_icon="🚨")
+
 st.markdown("""
 <style>
 .result-bad { padding:12px; background:#ffcccc; border-left:5px solid #d10000; border-radius:8px; font-size:18px; }
 .result-okay { padding:12px; background:#ccffcc; border-left:5px solid #008000; border-radius:8px; font-size:18px; }
-.section-card { background:#fff; padding:16px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.08); margin:16px 0; }
+.section-card { background:white; padding:15px; margin:15px 0; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.1); }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------
-# APIs
-# ---------------------------------------------------
-OCR_API_KEY = "helloworld"    # free OCR.Space demo key
-DEEPAI_KEY = "quickstart-QUdJIGlzIGNvbWluZy4uLi4K"  # public free key
-
-SIGHT_USER = "872379412"
-SIGHT_SECRET = "BggWDfoR2MtExba7FVjwepaznrxWejv6"
-
-# ---------------------------------------------------
 # OCR API
 # ---------------------------------------------------
-def extract_text(image_path):
+OCR_API_KEY = "helloworld"
+
+def extract_text(img_path):
     url = "https://api.ocr.space/parse/image"
-    with open(image_path, "rb") as f:
+    with open(img_path, "rb") as f:
         files = {"file": f}
         data = {"apikey": OCR_API_KEY, "language": "eng"}
         try:
-            r = requests.post(url, files=files, data=data).json()
-            return r["ParsedResults"][0]["ParsedText"]
+            res = requests.post(url, files=files, data=data).json()
+            return res["ParsedResults"][0]["ParsedText"]
         except:
             return ""
 
 # ---------------------------------------------------
-# DeepAI Toxicity
+# STRONG LOCAL TEXT FILTERS
 # ---------------------------------------------------
-def check_toxicity(text):
-    url = "https://api.deepai.org/api/toxicity"
-    headers = {"api-key": DEEPAI_KEY}
-    try:
-        r = requests.post(url, data={"text": text}, headers=headers).json()
-        return float(r.get("output", 0))
-    except:
-        return 0
+
+PROFANITY = [
+    "fuck","f**k","f---","shit","bitch","asshole","bastard","dick","pussy","slut",
+    "whore","bollocks","crap","fucker","cunt"
+]
+
+HATE = [
+    "kill you","kill yourself","kys","die","i will kill","murder you",
+    "terrorist","racist","nazi","hitler","slave"
+]
+
+SELF_HARM = [
+    "i want to die","i hate my life","i want to kill myself","end my life",
+    "i want to disappear","suicidal","self harm","cut myself"
+]
+
+SEXUAL = [
+    "nude","nudes","sex","boobs","tits","porn","fuck me","send nudes","horny"
+]
 
 # ---------------------------------------------------
-# DeepAI Sentiment
+# SIGHTENGINE IMAGE MODERATION
 # ---------------------------------------------------
-def check_sentiment(text):
-    url = "https://api.deepai.org/api/sentiment-analysis"
-    headers = {"api-key": DEEPAI_KEY}
-    try:
-        r = requests.post(url, data={"text": text}, headers=headers).json()
-        out = r.get("output", ["neutral"])
-        return out[0].lower()
-    except:
-        return "neutral"
+USER = "872379412"
+SECRET = "BggWDfoR2MtExba7FVjwepaznrxWejv6"
 
-# ---------------------------------------------------
-# Sightengine Image Moderation
-# ---------------------------------------------------
 def image_moderation(img_path):
     url = "https://api.sightengine.com/1.0/check.json"
-    with open(img_path, "rb") as f:
+    with open(img_path, 'rb') as f:
         files = {"media": f}
         params = {
-            "models": "nudity,wad,offensive,faces,gore,weapon,violence",
-            "api_user": SIGHT_USER,
-            "api_secret": SIGHT_SECRET,
+            "models": "nudity,wad,offensive,gore,weapon,violence",
+            "api_user": USER,
+            "api_secret": SECRET,
         }
         try:
             return requests.post(url, data=params, files=files).json()
@@ -81,7 +75,7 @@ def image_moderation(img_path):
             return {}
 
 # ---------------------------------------------------
-# Save Uploaded Image
+# SAVE IMAGE
 # ---------------------------------------------------
 def save_uploaded_image(uploaded_file):
     img = Image.open(uploaded_file)
@@ -91,66 +85,83 @@ def save_uploaded_image(uploaded_file):
     return "temp.png"
 
 # ---------------------------------------------------
-# Decision Fusion
+# TEXT SCORING
 # ---------------------------------------------------
-def fuse(text, tox, sentiment, img):
+def analyze_text(raw_text):
+    text = raw_text.lower()
     reasons = []
 
-    if tox > 0.6:
-        reasons.append("Toxic language detected.")
+    if any(word in text for word in PROFANITY):
+        reasons.append("Profanity detected.")
 
-    if sentiment == "negative":
-        reasons.append("Negative/sad emotional tone detected.")
+    if any(word in text for word in HATE):
+        reasons.append("Hate or threatening language detected.")
 
-    nudity = img.get("nudity", {}) or {}
-    if nudity.get("raw", 0) > 0.5:
+    if any(word in text for word in SELF_HARM):
+        reasons.append("Self-harm / suicidal expression detected.")
+
+    if any(word in text for word in SEXUAL):
+        reasons.append("Sexual/explicit text detected.")
+
+    return reasons
+
+# ---------------------------------------------------
+# DECISION FUSION
+# ---------------------------------------------------
+def fuse(text_reasons, img_res):
+    reasons = text_reasons.copy()
+
+    nudity = img_res.get("nudity", {}) or {}
+    if nudity.get("raw", 0) > 0.35:
         reasons.append("Nudity detected.")
 
-    weapon = img.get("weapon", {}) or {}
-    if weapon.get("prob", 0) > 0.6:
+    if nudity.get("sexual_activity", 0) > 0.25:
+        reasons.append("Sexual activity in image.")
+
+    if img_res.get("weapon", {}).get("prob", 0) > 0.4:
         reasons.append("Weapon detected.")
 
-    violence = img.get("violence", {}) or {}
-    if violence.get("prob", 0) > 0.6:
+    if img_res.get("violence", {}).get("prob", 0) > 0.4:
         reasons.append("Violence detected.")
 
-    offensive = img.get("offensive", {}) or {}
-    if offensive.get("prob", 0) > 0.6:
+    if img_res.get("offensive", {}).get("prob", 0) > 0.4:
         reasons.append("Hate/offensive symbol detected.")
 
-    gore = img.get("gore", {}) or {}
-    if gore.get("prob", 0) > 0.5:
+    if img_res.get("gore", {}).get("prob", 0) > 0.3:
         reasons.append("Gore detected.")
 
-    return ("OKAY" if not reasons else "BAD", reasons)
+    final = "OKAY" if not reasons else "BAD"
+    return final, reasons
 
 # ---------------------------------------------------
 # UI
 # ---------------------------------------------------
-st.title("🚨 Harmful Content Detector")
+st.title("🚨 Harmful Content Detection System")
 
-uploaded_file = st.file_uploader("Upload an image", type=["jpg","jpeg","png"])
+uploaded = st.file_uploader("Upload image", type=["jpg","jpeg","png"])
 
-if uploaded_file:
-    temp_path = save_uploaded_image(uploaded_file)
+if uploaded:
+    temp_path = save_uploaded_image(uploaded)
     st.image(temp_path, width=350)
 
     # OCR
     text = extract_text(temp_path)
 
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.subheader("🔍 Extracted Text")
+    st.write(text if text.strip() else "*No text found*")
+    st.markdown("</div>", unsafe_allow_html=True)
+
     # TEXT ANALYSIS
-    tox = check_toxicity(text)
-    sentiment = check_sentiment(text)
+    text_reasons = analyze_text(text)
 
     # IMAGE ANALYSIS
     img_res = image_moderation(temp_path)
 
-    # FINAL DECISION
-    final, reasons = fuse(text, tox, sentiment, img_res)
+    # FUSION
+    final, reasons = fuse(text_reasons, img_res)
 
-    st.markdown("---")
-    st.subheader("Final Verdict")
-
+    st.subheader("Verdict")
     if final == "BAD":
         st.markdown("<div class='result-bad'>🚨 BAD</div>", unsafe_allow_html=True)
         for r in reasons:
