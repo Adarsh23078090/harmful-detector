@@ -1,0 +1,6 @@
+streamlit
+easyocr
+transformers
+torch
+Pillow
+requests
