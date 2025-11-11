@@ -4,6 +4,9 @@ from transformers import pipeline
 import requests
 from PIL import Image
 import os
+import torch
+torch.set_default_dtype(torch.float32)
+
 
 # --------------------------------
 # Streamlit Page Config
@@ -62,12 +65,16 @@ ocr = easyocr.Reader(['en'])
 # SAFE MODELS FOR STREAMLIT CLOUD
 toxicity_model = pipeline(
     "text-classification",
-    model="unitary/toxic-bert"
+    model="unitary/toxic-bert",
+    device=-1,              # force CPU
+    torch_dtype="float32"   # disable FP16
 )
 
 suicide_model = pipeline(
     "text-classification",
-    model="facebook/roberta-hate-speech-dynabench-r4-target"
+    model="facebook/roberta-hate-speech-dynabench-r4-target",
+    device=-1,
+    torch_dtype="float32"
 )
 
 # USE STREAMLIT SECRETS
