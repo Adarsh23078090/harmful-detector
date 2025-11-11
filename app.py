@@ -1,5 +1,4 @@
 import streamlit as st
-import pytesseract
 import cv2
 import numpy as np
 from transformers import pipeline
@@ -54,18 +53,26 @@ body {
 """, unsafe_allow_html=True)
 
 # --------------------------------
-# OCR Function (pytesseract — works on Streamlit Cloud)
+# OCR using OCR.Space API (works on Streamlit Cloud)
 # --------------------------------
+OCR_API_KEY = "helloworld"   # Free demo key from OCR.Space
+
 def extract_text(image_path):
-    img = cv2.imread(image_path)
-    if img is None:
-        return ""
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    text = pytesseract.image_to_string(gray)
-    return text.strip()
+    url = "https://api.ocr.space/parse/image"
+    with open(image_path, "rb") as f:
+        files = {"file": f}
+        payload = {
+            "apikey": OCR_API_KEY,
+            "language": "eng",
+        }
+        r = requests.post(url, files=files, data=payload)
+        try:
+            return r.json()["ParsedResults"][0]["ParsedText"]
+        except:
+            return ""
 
 # --------------------------------
-# Load Text Moderation Models (Lightweight, Cloud-Safe)
+# Load Text Moderation Models
 # --------------------------------
 toxicity_model = pipeline(
     "text-classification",
@@ -82,21 +89,21 @@ suicide_model = pipeline(
 )
 
 # --------------------------------
-# Sightengine API Credentials 
+# Sightengine API Credentials
 # --------------------------------
 API_USER = "872379412"     # <-- REPLACE
 API_SECRET = "BggWDfoR2MtExba7FVjwepaznrxWejv6" # <-- REPLACE
 
 # --------------------------------
-# Image Moderation API
+# Image Moderation via Sightengine
 # --------------------------------
 def image_moderation(img_path):
     url = "https://api.sightengine.com/1.0/check.json"
-    files = {'media': open(img_path, 'rb')}
+    files = {"media": open(img_path, "rb")}
     params = {
-        'models': 'nudity,wad,offensive,faces,gore,weapon,violence',
-        'api_user': API_USER,
-        'api_secret': API_SECRET
+        "models": "nudity,wad,offensive,faces,gore,weapon,violence",
+        "api_user": API_USER,
+        "api_secret": API_SECRET
     }
     res = requests.post(url, data=params, files=files)
     return res.json()
@@ -112,16 +119,14 @@ def fuse(text_res, img_res):
         "threat", "violent", "abusive", "harassment", "hate"
     ]
 
-    # TEXT ANALYSIS
     label = text_res["suicidal"]["label"].lower()
 
-    if any(word in label for word in suicide_keywords) and text_res["suicidal"]["score"] > 0.45:
+    if any(w in label for w in suicide_keywords) and text_res["suicidal"]["score"] > 0.45:
         reasons.append("Self-harm / Threatening language detected")
 
     if text_res["toxic"]["label"] != "neutral" and text_res["toxic"]["score"] > 0.45:
         reasons.append("Toxic or abusive text detected")
 
-    # IMAGE ANALYSIS
     nudity = img_res.get("nudity", {})
     weapon = img_res.get("weapon", {})
     violence = img_res.get("violence", {})
@@ -144,11 +149,11 @@ def fuse(text_res, img_res):
     if offensive.get("prob", 0) > 0.4:
         reasons.append("Offensive / hate symbols detected")
 
-    final = "OKAY" if len(reasons) == 0 else "BAD"
+    final = "OKAY" if not reasons else "BAD"
     return final, reasons
 
 # --------------------------------
-# Safe Image Save Function (fixes PIL OSError)
+# Safe Image Saving (no JPG errors)
 # --------------------------------
 def save_uploaded_image(uploaded_file) -> str:
     img = Image.open(uploaded_file)
