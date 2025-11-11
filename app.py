@@ -64,7 +64,6 @@ def extract_text(image_path):
     text = pytesseract.image_to_string(gray)
     return text.strip()
 
-
 # --------------------------------
 # Load Text Moderation Models (Lightweight, Cloud-Safe)
 # --------------------------------
@@ -83,28 +82,24 @@ suicide_model = pipeline(
 )
 
 # --------------------------------
-# Sightengine API Credentials (store in Streamlit secrets)
+# Sightengine API Credentials 
 # --------------------------------
 API_USER = "872379412"     # <-- REPLACE
 API_SECRET = "BggWDfoR2MtExba7FVjwepaznrxWejv6" # <-- REPLACE
 
-
 # --------------------------------
-# Image Moderation API (Sightengine)
+# Image Moderation API
 # --------------------------------
 def image_moderation(img_path):
     url = "https://api.sightengine.com/1.0/check.json"
-
     files = {'media': open(img_path, 'rb')}
     params = {
         'models': 'nudity,wad,offensive,faces,gore,weapon,violence',
         'api_user': API_USER,
         'api_secret': API_SECRET
     }
-
     res = requests.post(url, data=params, files=files)
     return res.json()
-
 
 # --------------------------------
 # Decision Fusion
@@ -112,7 +107,6 @@ def image_moderation(img_path):
 def fuse(text_res, img_res):
     reasons = []
 
-    # Self-harm related keywords
     suicide_keywords = [
         "suicide", "self-harm", "kill", "die", "hurt myself", "hurt yourself",
         "threat", "violent", "abusive", "harassment", "hate"
@@ -153,6 +147,16 @@ def fuse(text_res, img_res):
     final = "OKAY" if len(reasons) == 0 else "BAD"
     return final, reasons
 
+# --------------------------------
+# Safe Image Save Function (fixes PIL OSError)
+# --------------------------------
+def save_uploaded_image(uploaded_file) -> str:
+    img = Image.open(uploaded_file)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    temp_path = "temp.png"
+    img.save(temp_path, format="PNG")
+    return temp_path
 
 # --------------------------------
 # Streamlit UI
@@ -163,19 +167,10 @@ st.write("Uploads image → OCR → Text Moderation → Image Moderation → Fin
 uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    img = Image.open(uploaded_file)
-    st.image(img, caption="Uploaded Image", width=350)
-
-    def save_uploaded_image(uploaded_file) -> str:
-    img = Image.open(uploaded_file)
-    # If it has alpha or is palette/other mode, convert to RGB
-    if img.mode not in ("RGB", "L"):
-        img = img.convert("RGB")
-    temp_path = "temp.png"  # PNG avoids JPEG encoder issues
-    img.save(temp_path, format="PNG")
-    return temp_path
 
     temp_path = save_uploaded_image(uploaded_file)
+    img = Image.open(temp_path)
+    st.image(img, caption="Uploaded Image", width=350)
 
     # OCR
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
