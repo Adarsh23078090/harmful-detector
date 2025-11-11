@@ -59,6 +59,7 @@ st.subheader("Detects nudity, violence, suicide, toxicity, hate, and more.")
 
 ocr = easyocr.Reader(['en'])
 
+# SAFE MODELS FOR STREAMLIT CLOUD
 toxicity_model = pipeline(
     "text-classification",
     model="unitary/toxic-bert"
@@ -66,9 +67,10 @@ toxicity_model = pipeline(
 
 suicide_model = pipeline(
     "text-classification",
-    model="nivlou/suicide-ideation-detector"
+    model="facebook/roberta-hate-speech-dynabench-r4-target"
 )
 
+# USE STREAMLIT SECRETS
 API_USER = "872379412"     # <-- REPLACE
 API_SECRET = "BggWDfoR2MtExba7FVjwepaznrxWejv6" # <-- REPLACE
 
@@ -104,28 +106,42 @@ def image_moderation(img_path):
 def fuse(text_res, img_res):
     reasons = []
 
-    # TEXT
-    if text_res["suicidal"]["label"] == "suicidal" and text_res["suicidal"]["score"] > 0.5:
-        reasons.append("Suicidal text detected")
+    # --- TEXT THREAT / SUICIDE / HATE DETECTION ---
+    suicide_keywords = [
+        "suicide", "self-harm", "kill", "die", "hurt myself",
+        "hurt yourself", "threat", "violent", "abusive"
+    ]
 
-    if text_res["toxic"]["label"] != "neutral" and text_res["toxic"]["score"] > 0.5:
-        reasons.append("Toxic / abusive text detected")
+    label = text_res["suicidal"]["label"].lower()
 
-    # IMAGE
+    if any(word in label for word in suicide_keywords) and text_res["suicidal"]["score"] > 0.45:
+        reasons.append("Self-harm / Threatening language detected")
+
+    if text_res["toxic"]["label"] != "neutral" and text_res["toxic"]["score"] > 0.45:
+        reasons.append("Toxic or abusive text detected")
+
+    # --- IMAGE CHECKS ---
     nudity = img_res.get("nudity", {})
     weapon = img_res.get("weapon", {})
     violence = img_res.get("violence", {})
     gore = img_res.get("gore", {})
     offensive = img_res.get("offensive", {})
 
-    if nudity.get("sexual_activity", 0) > 0.25: reasons.append("Sexual activity detected")
-    if nudity.get("sexual_display", 0) > 0.25: reasons.append("Sexual display detected")
-    if nudity.get("raw", 0) > 0.30: reasons.append("Nudity detected")
+    if nudity.get("sexual_activity", 0) > 0.25:
+        reasons.append("Sexual activity detected")
+    if nudity.get("sexual_display", 0) > 0.25:
+        reasons.append("Sexual display detected")
+    if nudity.get("raw", 0) > 0.30:
+        reasons.append("Nudity detected")
 
-    if weapon.get("prob", 0) > 0.4: reasons.append("Weapon detected")
-    if violence.get("prob", 0) > 0.4: reasons.append("Violence detected")
-    if gore.get("prob", 0) > 0.3: reasons.append("Gore detected")
-    if offensive.get("prob", 0) > 0.4: reasons.append("Offensive symbols detected")
+    if weapon.get("prob", 0) > 0.4:
+        reasons.append("Weapon detected")
+    if violence.get("prob", 0) > 0.4:
+        reasons.append("Violence detected")
+    if gore.get("prob", 0) > 0.3:
+        reasons.append("Gore detected")
+    if offensive.get("prob", 0) > 0.4:
+        reasons.append("Offensive / hate symbols detected")
 
     final = "OKAY" if len(reasons) == 0 else "BAD"
     return final, reasons
@@ -144,32 +160,35 @@ if uploaded_file:
     temp_path = "temp.jpg"
     img.save(temp_path)
 
+    # OCR Section
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.subheader("🔍 OCR — Text Extracted from Image")
+    st.subheader("🔍 OCR — Extracted Text")
     text = extract_text(temp_path)
     st.write(text if text.strip() else "*No visible text found*")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # TEXT RESULTS
+    # TEXT MODERATION
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.subheader("📘 Text Moderation Results")
+    st.subheader("📘 Text Moderation")
+
     text_res = text_moderation(text)
 
     st.write("**Toxicity**:", text_res["toxic"])
     st.progress(min(1.0, text_res["toxic"]["score"]))
 
-    st.write("**Suicidal Indicator**:", text_res["suicidal"])
+    st.write("**Self-harm / Hate / Threat Indicators**:", text_res["suicidal"])
     st.progress(min(1.0, text_res["suicidal"]["score"]))
+
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # IMAGE RESULTS
+    # IMAGE MODERATION
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-    st.subheader("🖼 Image Moderation Results")
+    st.subheader("🖼 Image Moderation")
     img_res = image_moderation(temp_path)
 
     if "nudity" in img_res:
         st.write("**Nudity / Sexual Content**")
-        for k,v in img_res["nudity"].items():
+        for k, v in img_res["nudity"].items():
             st.write(f"{k}: {v:.2f}")
             st.progress(min(1.0, v))
 
@@ -205,4 +224,5 @@ if uploaded_file:
     else:
         st.markdown(f"<div class='result-okay'>✅ OKAY</div>", unsafe_allow_html=True)
         st.write("No harmful content detected.")
+
     st.markdown("---")
