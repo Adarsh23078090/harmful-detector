@@ -166,8 +166,16 @@ if uploaded_file:
     img = Image.open(uploaded_file)
     st.image(img, caption="Uploaded Image", width=350)
 
-    temp_path = "temp.jpg"
-    img.save(temp_path)
+    def save_uploaded_image(uploaded_file) -> str:
+    img = Image.open(uploaded_file)
+    # If it has alpha or is palette/other mode, convert to RGB
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    temp_path = "temp.png"  # PNG avoids JPEG encoder issues
+    img.save(temp_path, format="PNG")
+    return temp_path
+
+    temp_path = save_uploaded_image(uploaded_file)
 
     # OCR
     st.markdown("<div class='section-card'>", unsafe_allow_html=True)
