@@ -125,7 +125,7 @@ HATE = [
     "destroy your family","destroy everything","destroy your life",
     "dox you","doxxing threat","expose you",
     "i’ll poison you","i’ll drug you","poison threat",
-    "discriminate you","racially insult you"
+    "discriminate you","racially insult you","The Violence has escalated","violent"
 ]
 
 SELF_HARM = [
