@@ -1,7 +1,4 @@
-pytesseract
-opencv-python-headless
-transformers
-torch==2.5.1
 streamlit
-Pillow
 requests
+Pillow
+matplotlib
